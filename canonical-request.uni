@@ -1,0 +1,303 @@
+<DEFINE trigger>
+#define NULL = ""
+#define LF  $string("&#0010;")
+</DEFINE trigger>
+--------------------------------------------------------
+#define NULL = ""
+#define LF  $string("&#0010;")
+
+
+
+;//---------------------------------------------------------------
+;// Create a Canonical Request for Signature Version 4
+;// http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
+;//---------------------------------------------------------------
+entry EN100_CREATE_CANONICAL_SIG_V4
+returns string
+    params
+        string P_VERB : IN
+        string P_URL : IN
+        string P_HOST : IN
+        string P_HEADERS : IN ; uniface list
+        string P_PAYLOAD : IN
+        string P_MESSAGE : OUT
+        numeric P_STATUS : OUT
+    endparams
+    variables
+        string V_HTTP_REQUEST_METHOD
+        string V_CANONICAL_URI
+        string V_CANONICAL_QUERY_STRING
+        string V_CANONICAL_HEADERS
+        string V_SIGNED_HEADERS
+        string V_REQUEST_PAYLOAD
+        string V_QUERY_STRING
+        string V_URI_PARAMS
+        string V_URI
+        string V_AMZ_DATE
+        string V_HASH
+        string V_HEX_CODE
+        string V_OUTPUT
+        string V_CANONICAL_REQUEST
+        string V_MESSAGE
+        numeric V_STATUS
+    endvariables
+
+;Guards
+    if (P_VERB = "")
+        P_STATUS = -1
+        P_MESSAGE = "No HTTP verb"
+        return <NULL>
+    endif 
+    if (P_URL = "")
+        P_STATUS = -1
+        P_MESSAGE = "No API URL"
+        return <NULL>
+    endif 
+
+;Init
+
+;Process
+
+    ;HTTP method
+    V_HTTP_REQUEST_METHOD = P_VERB
+
+    ;CanonicalURI : everything in URI (encoded) from host to the ? see RFC3986
+    V_URI = P_URL
+    V_URI = $replace(V_URI, 1, "://", "·;", 1)
+    V_URI = $replace(V_URI, 1, "/", "·;", 1)
+    V_URI = $replace(V_URI, 1, "?", "·;", 1)
+ 
+    V_URI_PARAMS = $itemnr(3, V_URI)
+    if (V_URI_PARAMS = <NULL>)
+        V_URI_PARAMS = "/"
+    endif
+    V_CANONICAL_URI = V_URI_PARAMS
+
+    ;Canonical query string : everything after the "?" which will be item 4 in the list
+    if ($itemcount(V_URI) > 3) 
+        V_QUERY_STRING = $itemnr(4,V_URI)
+        V_CANONICAL_QUERY_STRING = EN200_CANONICAL_QUERY_STRING( V_QUERY_STRING, V_MESSAGE, V_STATUS )
+        V_CANONICAL_QUERY_STRING = V_CANONICAL_QUERY_STRING
+    else
+        V_CANONICAL_QUERY_STRING = ""
+    endif
+
+    ;Canonical Headers : List of all HTTP headers. host header at a minimum. others opt
+    V_CANONICAL_HEADERS = EN300_CANONICAL_HEADERS(P_HEADERS, V_MESSAGE, V_STATUS)
+
+    ;SignedHeaders 
+    V_SIGNED_HEADERS = EN400_SIGNED_HEADERS(P_HEADERS, V_MESSAGE, V_STATUS)
+
+    ;create the hex code : use same alogrthim for AWS i.e. AWS4-HMAC-SHA256
+    V_REQUEST_PAYLOAD = P_PAYLOAD
+    if (V_REQUEST_PAYLOAD = "") ;uniface cannot handle SHA256 of empty string, so hardcoded here
+        V_HEX_CODE = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    else
+        V_HASH = $encode("SHA256", V_REQUEST_PAYLOAD)
+        V_HEX_CODE = $encode("HEX", V_HASH)
+        V_HEX_CODE = $lowercase(V_HEX_CODE)
+    endif
+
+    ;combine
+    V_CANONICAL_REQUEST = $concat(V_HTTP_REQUEST_METHOD, <LF>, V_CANONICAL_URI, <LF>, V_CANONICAL_QUERY_STRING)
+    V_CANONICAL_REQUEST = $concat(V_CANONICAL_REQUEST, <LF>, V_CANONICAL_HEADERS, <LF>, V_SIGNED_HEADERS)
+    V_CANONICAL_REQUEST = $concat(V_CANONICAL_REQUEST, V_HEX_CODE)
+    V_OUTPUT = $lowercase( $encode("HEX", $encode("SHA256", V_CANONICAL_REQUEST)) )
+
+    ;Return
+    return V_OUTPUT
+
+end
+
+;//---------------------------------------------------
+;// Canonical Query string
+;//---------------------------------------------------
+entry EN200_CANONICAL_QUERY_STRING
+returns string
+    params
+        string P_QUERY_STRING : IN
+        string P_MESSAGE : OUT
+        numeric P_STATUS : OUT
+    endparams
+    variables
+        string V_LIST
+        string V_QUERY_STRING
+        string V_ITEM
+        string V_CANONICAL_QUERY_STRING
+        numeric V_IDX
+    endvariables
+
+    ;extract parameters
+    V_QUERY_STRING = P_QUERY_STRING
+    V_QUERY_STRING = $replace(V_QUERY_STRING, 1, "&", "·;", -1)
+    while (V_QUERY_STRING != <NULL>)
+        putitem V_LIST, -1, $itemnr(1, V_QUERY_STRING)
+        delitem V_QUERY_STRING, 1
+    endwhile
+
+    ;a.sort
+    sort/list (V_LIST, "$idpart: ascending string")
+
+    ;b.URI-encode  
+    ;// todo
+
+    V_CANONICAL_QUERY_STRING = <NULL>
+    forlist V_ITEM, V_IDX in V_LIST
+        ;c.build canonical query string
+         V_CANONICAL_QUERY_STRING = $concat(V_CANONICAL_QUERY_STRING,V_ITEM)
+
+        ;d.append '&' except ofr last
+        if (V_IDX != $itemcount(V_LIST))
+            V_CANONICAL_QUERY_STRING = $concat(V_CANONICAL_QUERY_STRING, "&")
+        endif     
+    endfor
+
+    return V_CANONICAL_QUERY_STRING
+end
+
+;//---------------------------------------------------
+;// Canonical Headers
+;//---------------------------------------------------
+entry EN300_CANONICAL_HEADERS
+returns string
+    params
+        string P_HEADERS : IN
+        string P_MESSAGE : OUT
+        numeric P_STATUS : OUT
+    endparams
+    variables
+        string V_ITEM
+        string V_LIST
+        numeric V_IDX
+        string V_HDR_NAME
+        string V_HDR_VALUE 
+        numeric V_POS
+    endvariables
+
+    if (P_HEADERS = <NULL>) return <NULL>
+;"Content-Type: application/x-www-form-urlencoded; charset=utf-8"
+    forlist V_ITEM, V_IDX in P_HEADERS
+        if ($scan(V_ITEM,":") > 0)
+            V_POS = $split(V_ITEM, 1, ":", V_HDR_NAME, V_HDR_VALUE)
+        endif
+
+        V_HDR_NAME = $ltrim($rtrim( $lowercase(V_HDR_NAME)," " )," ")
+        V_HDR_VALUE = $ltrim($rtrim( V_HDR_VALUE," " )," ")
+
+        ;replace header value white space with single space
+        while ($scan(V_HDR_VALUE,"  ") > 1)
+            V_HDR_VALUE = $replace(V_HDR_VALUE,1,"  "," ",-1)
+        endwhile
+
+        putitem V_LIST, -1, $concat(V_HDR_NAME, ":", V_HDR_VALUE, <LF>)
+    endfor
+
+    ;a.sort
+    sort/list (V_LIST, "$idpart: ascending string")
+    V_LIST = $replace(V_LIST,1,"·;","",-1)
+
+    return V_LIST
+end
+
+;//---------------------------------------------------
+;// Signed Headers : must have host and x-amz-date, semi-colon-separated
+;//---------------------------------------------------
+entry EN400_SIGNED_HEADERS
+returns string
+    params
+        string P_HEADERS : IN
+        string P_MESSAGE : OUT
+        numeric P_STATUS : OUT
+    endparams
+    variables
+        string V_ITEM
+        string V_LIST
+        numeric V_IDX
+        string V_HDR_NAME
+        string V_HDR_VALUE 
+        numeric V_POS
+    endvariables
+
+    if (P_HEADERS = <NULL>) return <NULL>
+
+    forlist V_ITEM, V_IDX in P_HEADERS
+        if ($scan(V_ITEM,":") > 0)
+            V_POS = $split(V_ITEM, 1, ":", V_HDR_NAME, V_HDR_VALUE)
+        endif
+
+        V_HDR_NAME = $ltrim($rtrim( $lowercase(V_HDR_NAME)," " )," ")
+
+        putitem V_LIST, -1, V_HDR_NAME
+    endfor
+
+    ;a.sort and separate with semi-colon
+    sort/list (V_LIST, "$idpart: ascending string")
+    V_LIST = $replace(V_LIST,1,"·;",";",-1)
+    V_LIST = $concat(V_LIST,<LF>)
+
+    return V_LIST
+end
+
+
+;//---------------------------------------------------
+;// AWS Date
+;//---------------------------------------------------
+entry EN900_AMZ_DATE
+returns string
+    variables
+        datetime V_NOW
+        string V_AWS_DATE
+        numeric Vx
+    endvariables
+
+    V_NOW = $datim
+
+    ;year
+    V_AWS_DATE = V_NOW[Y]
+
+    ;month
+    Vx = V_NOW[M]
+    if (Vx < 10)
+        V_AWS_DATE = $concat(V_AWS_DATE, "0", Vx)
+    else
+        V_AWS_DATE = $concat(V_AWS_DATE, Vx)
+    endif
+
+    ;day
+    Vx = V_NOW[D]
+    if (Vx < 10)
+        V_AWS_DATE = $concat(V_AWS_DATE, "0", Vx)
+    else
+        V_AWS_DATE = $concat(V_AWS_DATE, Vx)
+    endif
+
+    V_AWS_DATE = $concat(V_AWS_DATE, "T")
+
+    ;Hour
+    Vx = V_NOW[H]
+    if (Vx < 10)
+        V_AWS_DATE = $concat(V_AWS_DATE, "0", Vx)
+    else
+        V_AWS_DATE = $concat(V_AWS_DATE, Vx)
+    endif
+
+    ;Mins
+    Vx = V_NOW[N]
+    if (Vx < 10)
+        V_AWS_DATE = $concat(V_AWS_DATE, "0", Vx)
+    else
+        V_AWS_DATE = $concat(V_AWS_DATE, Vx)
+    endif
+
+    ;Secs
+    Vx = V_NOW[S]
+    if (Vx < 10)
+        V_AWS_DATE = $concat(V_AWS_DATE, "0", Vx)
+    else
+        V_AWS_DATE = $concat(V_AWS_DATE, Vx)
+    endif
+
+    V_AWS_DATE = $concat(V_AWS_DATE, "Z")
+
+    return V_AWS_DATE
+end
