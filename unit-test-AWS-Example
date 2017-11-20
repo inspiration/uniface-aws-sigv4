@@ -1,0 +1,40 @@
+;//---------------------------------------------------------------
+;// Unit Test - based on AWS example.
+;// http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
+;//---------------------------------------------------------------
+entry EN100_TEST
+returns string
+variables
+    string P_VERB
+    string P_URL
+    string P_HOST
+    string P_HEADERS
+    string P_PAYLOAD
+    string V_EXPECTED
+    string V_ACTUAL
+    string V_MESSAGE
+    numeric V_STATUS
+endvariables
+
+    P_VERB = "GET"
+    P_URL = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
+    P_HOST = "iam.amazonaws.com"
+    putitem P_HEADERS, -1, "Content-Type: application/x-www-form-urlencoded; charset=utf-8"
+    putitem P_HEADERS, -1, "X-Amz-Date: 20150830T123600Z"
+    putitem P_HEADERS, -1, "Host: %%P_HOST"
+    ;V_AMZ_DATE = EN300_AMZ_DATE() - for date (not used in this unit test)
+
+    P_PAYLOAD = "" 
+    
+    V_EXPECTED = $expected
+    V_ACTUAL = EN100_CREATE_CANONICAL_SIG_V4( P_VERB, P_URL, P_HOST, P_HEADERS, P_PAYLOAD, V_MESSAGE, V_STATUS)
+
+    if (V_EXPECTED = V_ACTUAL)
+        return "PASS"
+    else
+        return "FAIL"
+    endif
+        
+expected:blockdata ~
+f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59~
+end
