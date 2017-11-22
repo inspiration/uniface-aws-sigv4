@@ -4,6 +4,47 @@
 </DEFINE trigger>
 
 
+;//-------------------------------------------------------------------------------
+;// Unit tests
+;// Test the creation of a SHA256 of Canonocal Request using AWS Signature v4
+;//-------------------------------------------------------------------------------
+entry EN100_TEST_HASH_OF_CAN_RQUEST
+returns string
+variables
+    string P_VERB
+    string P_URL
+    string P_HOST
+    string P_HEADERS
+    string P_PAYLOAD
+    string V_EXPECTED
+    string V_ACTUAL
+    string V_MESSAGE
+    numeric V_STATUS
+endvariables
+
+    P_VERB = "GET"
+    P_URL = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
+    P_HOST = "iam.amazonaws.com"
+    putitem P_HEADERS, -1, "Content-Type: application/x-www-form-urlencoded; charset=utf-8"
+    putitem P_HEADERS, -1, "X-Amz-Date: 20150830T123600Z"
+    putitem P_HEADERS, -1, "Host: %%P_HOST"
+    ;V_AMZ_DATE = EN300_AMZ_DATE() - for date
+
+    P_PAYLOAD = "" 
+    
+    V_EXPECTED = $expected
+    V_ACTUAL = EN100_CREATE_CANONICAL_SIG_V4( P_VERB, P_URL, P_HOST, P_HEADERS, P_PAYLOAD, V_MESSAGE, V_STATUS)
+
+    if (V_EXPECTED = V_ACTUAL)
+        return "PASS"
+    else
+        return "FAIL"
+    endif
+        
+expected:blockdata ~
+f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59~
+end
+
 ;//---------------------------------------------------------------
 ;// Create a Canonical Request for Signature Version 4
 ;// http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
@@ -69,7 +110,7 @@ returns string
     endif
     V_CANONICAL_URI = V_URI_PARAMS
 
-    ;Canonical query string : everything after the "?" which will be item 4 in the list
+    ;Canonical query string
     if ($itemcount(V_URI) > 3) 
         V_QUERY_STRING = $itemnr(4,V_URI)
         V_CANONICAL_QUERY_STRING = EN200_CANONICAL_QUERY_STRING( V_QUERY_STRING, V_MESSAGE, V_STATUS )
@@ -86,7 +127,7 @@ returns string
 
     ;create the hex code : use same alogrthim for AWS i.e. AWS4-HMAC-SHA256
     V_REQUEST_PAYLOAD = P_PAYLOAD
-    if (V_REQUEST_PAYLOAD = "") ;uniface cannot handle SHA256 of empty string, so hardcoded here
+    if (V_REQUEST_PAYLOAD = "")
         V_HEX_CODE = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     else
         V_HASH = $encode("SHA256", V_REQUEST_PAYLOAD)
@@ -234,6 +275,121 @@ returns string
     return V_LIST
 end
 
+;//---------------------------------------------------------------------
+;// Create the string to sign
+;//---------------------------------------------------------------------
+entry EN500_CREATE_STRING_TO_SIGN
+returns string
+    params  
+        string P_AMZ_DATE : IN
+        string P_DATE_YYYYMMDD : IN
+        string P_REGION : IN
+        string P_HASH_OF_CANONICAL_REQ : IN
+    endparams
+    variables
+        string V_ALGORITHM
+        string V_AMZ_DATE
+        string V_REGION
+        string V_AWS_SERVICE
+        string V_TERMINATOR
+        string V_CREDENTIAL_SCOPE
+        string V_STRING_TO_SIGN
+        string V_HASH_OF_CANONICAL_REQ
+    endvariables
+
+;// Guards 
+
+;// init
+    V_AWS_SERVICE = "iam"
+    V_TERMINATOR = "aws4_request"
+
+    if (P_REGION = <NULL>)
+        V_REGION = "ap-southeast-2"
+    else
+        V_REGION = P_REGION
+    endif
+    V_HASH_OF_CANONICAL_REQ = P_HASH_OF_CANONICAL_REQ
+
+;// Process
+
+    ;// SHA256
+    V_ALGORITHM = "AWS4-HMAC-SHA256"
+
+    ;// Request date value : ISO8601
+    ;V_AMZ_DATE = EN300_AMZ_DATE() 
+
+    ;// Append credential scope value
+    ;// - lowercase(date/region/service/"aws4_request")
+    V_CREDENTIAL_SCOPE = $concat(P_DATE_YYYYMMDD,"/",P_REGION,"/",V_AWS_SERVICE)
+    V_CREDENTIAL_SCOPE = $concat(V_CREDENTIAL_SCOPE,"/",V_TERMINATOR)
+    V_CREDENTIAL_SCOPE = $lowercase(V_CREDENTIAL_SCOPE)
+
+    ;// Append Hash of canonical request
+    V_STRING_TO_SIGN = $concat(V_ALGORITHM, <LF>, P_AMZ_DATE, <LF>, V_CREDENTIAL_SCOPE)
+    V_STRING_TO_SIGN = $concat(V_STRING_TO_SIGN, <LF>, P_HASH_OF_CANONICAL_REQ)
+
+    return V_STRING_TO_SIGN
+
+end
+
+
+;//---------------------------------------------------------------------
+;// Calculate the Signature for AWS Signature Version 4
+;//   kSecret = your secret access key
+;//   kDate = HMAC("AWS4" + kSecret, Date)
+;//   kRegion = HMAC(kDate, Region)
+;//   kService = HMAC(kRegion, Service)
+;//   kSigning = HMAC(kService, "aws4_request")
+;//---------------------------------------------------------------------
+entry EN600_CALCULATE_SIGNATURE_AWSV4
+returns string
+    params  
+        string P_STRING_TO_SIGN : IN
+        string P_SECRET_ACCESS_KEY : IN
+        string P_DATE_YYYYMMDD : IN
+        string P_REGION : IN
+        string P_SERVICE : IN
+    endparams
+    variables
+        string V_KSECRET
+        raw V_KDATE
+        raw V_KREGION
+        raw V_KSERVICE
+        raw V_KSIGNING
+        string V_SIGNATURE
+        string v_test
+    endvariables
+
+;// Guards 
+
+;// init
+
+;// Process
+debug
+;change to key then data 
+    ;// Derive signing key : Run a series of Hashes
+    V_KSECRET = P_SECRET_ACCESS_KEY
+    V_KDATE = $encode("HMAC_SHA256", P_DATE_YYYYMMDD, $concat("AWS4", V_KSECRET))
+    V_KREGION = $encode("HMAC_SHA256", P_REGION, V_KDATE)
+    V_KSERVICE = $encode("HMAC_SHA256", P_SERVICE, V_KREGION)
+    V_KSIGNING = $encode("HMAC_SHA256", "aws4_request", V_KSERVICE)
+    V_TEST = $lowercase($encode("HEX", V_KSIGNING))
+
+
+    ;// Calculate signature
+    V_SIGNATURE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", P_STRING_TO_SIGN, V_KSIGNING )))
+
+
+;;;    V_KDATE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", $concat("AWS4", V_KSECRET), P_DATE_YYYYMMDD) ) )
+;;;    V_KREGION = $lowercase( $encode( "HEX", $encode("HMAC_SHA256", V_KDATE, P_REGION) ) )
+;;;    V_KSERVICE = $lowercase( $encode( "HEX", $encode("HMAC_SHA256", V_KREGION, P_SERVICE) ) )
+;;;    V_KSIGNING = $lowercase( $encode("HEX", $encode("HMAC_SHA256", V_KSERVICE, "aws4_request")) )
+;;;
+;;;    ;// Calculate signature
+;;;    V_SIGNATURE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", V_KSIGNING, P_STRING_TO_SIGN)))
+    return V_SIGNATURE
+end
+
 
 ;//---------------------------------------------------
 ;// AWS Date
@@ -297,3 +453,4 @@ returns string
 
     return V_AWS_DATE
 end
+
