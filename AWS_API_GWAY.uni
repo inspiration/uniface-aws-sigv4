@@ -1,3 +1,11 @@
+#define NULL = ""
+#define LF  $string("&#0010;")
+#define AWS_ENDPOINT_TEST = <your API endpoint>
+#define AWS_HOST_TEST = <your API host>
+#define AWS_ACCESS_KEY_TEST = <your IAM access key>
+#define AWS_SECRET_KEY_TEST = <your IAM secret key>
+
+
 ;//--------------------------------------------------------------------------
 ;// UT01 : Test creation of AWS sig v4 signature using AWS example
 ;// > http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
