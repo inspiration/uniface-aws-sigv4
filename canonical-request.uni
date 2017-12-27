@@ -1,67 +1,251 @@
-<DEFINE trigger>
-#define NULL = ""
-#define LF  $string("&#0010;")
-</DEFINE trigger>
-
-
-;//-------------------------------------------------------------------------------
-;// Unit tests
-;// Test the creation of a SHA256 of Canonocal Request using AWS Signature v4
-;//-------------------------------------------------------------------------------
-entry EN100_TEST_HASH_OF_CAN_RQUEST
-returns string
+;//--------------------------------------------------------------------------
+;// UT01 : Test creation of AWS sig v4 signature using AWS example
+;// > http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
+;//--------------------------------------------------------------------------
+entry UT01
 variables
-    string P_VERB
-    string P_URL
-    string P_HOST
-    string P_HEADERS
-    string P_PAYLOAD
+    string V_HEADERS
+    string V_PAYLOAD
+    string V_AMZ_DATE
     string V_EXPECTED
     string V_ACTUAL
+    string V_HASH_OF_CANONICAL_REQ
+    string V_STRING_TO_SIGN
+    string V_RESULT
     string V_MESSAGE
     numeric V_STATUS
 endvariables
 
-    P_VERB = "GET"
-    P_URL = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
-    P_HOST = "iam.amazonaws.com"
-    putitem P_HEADERS, -1, "Content-Type: application/x-www-form-urlencoded; charset=utf-8"
-    putitem P_HEADERS, -1, "X-Amz-Date: 20150830T123600Z"
-    putitem P_HEADERS, -1, "Host: %%P_HOST"
-    ;V_AMZ_DATE = EN300_AMZ_DATE() - for date
+;//Guards
 
-    P_PAYLOAD = "" 
-    
-    V_EXPECTED = $expected
-    V_ACTUAL = EN100_CREATE_CANONICAL_SIG_V4( P_VERB, P_URL, P_HOST, P_HEADERS, P_PAYLOAD, V_MESSAGE, V_STATUS)
+;//Init
+    VERB = "GET"
+    ACCESS_KEY = "**NOT NEEDED ** only testing signature AWSV4 "
+    URI = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
 
-    if (V_EXPECTED = V_ACTUAL)
-        return "PASS"
+    HOST = "iam.amazonaws.com"
+    CONTENT_TYPE = "application/x-www-form-urlencoded; charset=utf-8"
+    AMZ_DATE = "20150830T123600Z"
+    DATE_YYYYMMDD = AMZ_DATE[1:8]
+    X_AMZ_DATE = AMZ_DATE
+
+    SECRET_KEY = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    REGION = "us-east-1"
+    SERVICE = "iam"
+    PAYLOAD = <NULL>
+
+    putitem V_HEADERS, -1, $concat("Content-Type: ", CONTENT_TYPE)
+    putitem V_HEADERS, -1, $concat("X-Amz-Date: ", X_AMZ_DATE)
+    putitem V_HEADERS, -1, $concat("Host: ", HOST)
+
+    V_PAYLOAD = PAYLOAD
+
+;//Process
+
+    ;//sign
+    V_HASH_OF_CANONICAL_REQ = EN100_HASH_OF_CANONICAL_REQ(VERB, URI, HOST, V_HEADERS, AMZ_DATE, DATE_YYYYMMDD, SECRET_KEY, REGION, SERVICE, V_PAYLOAD, V_MESSAGE, V_STATUS)
+    V_STRING_TO_SIGN = EN500_CREATE_STRING_TO_SIGN(AMZ_DATE, DATE_YYYYMMDD, REGION, SERVICE, V_HASH_OF_CANONICAL_REQ, V_MESSAGE, V_STATUS)
+    SIGNATURE = EN600_CALCULATE_SIGNATURE_AWSV4( V_STRING_TO_SIGN, SECRET_KEY, DATE_YYYYMMDD, REGION, SERVICE)
+    V_RESULT = SIGNATURE
+
+    ;//AssertEquals
+    V_EXPECTED = "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7"
+    if (V_EXPECTED = V_RESULT)
+        RESULT = "PASS"
+        $fieldproperties(RESULT) = "backcolor=green·;forecolor=white"
+        fieldsyntax RESULT, "YDI"
     else
-        return "FAIL"
+        RESULT = "FAIL"
+        $fieldproperties(RESULT) = "backcolor=red·;forecolor=white"
+        fieldsyntax RESULT, "YDI"
     endif
-        
-expected:blockdata ~
-f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59~
-end
+
+    return 0
+end ;UT01
+
+;//--------------------------------------------------------------------------
+;// UT02 : Test creation of AWS sig v4 signature using API gsteway key
+;//--------------------------------------------------------------------------
+entry UT02
+variables
+    string V_HEADERS
+    string V_EXPECTED
+    string V_ACTUAL
+    string V_HASH_OF_CANONICAL_REQ
+    string V_STRING_TO_SIGN
+    string V_AMZ_DATE
+    string V_HOST
+    string V_CONTENT_LENGTH
+    string V_CONTENT_TYPE
+    string V_RESULT
+    string V_PAYLOAD
+    string V_MESSAGE
+    numeric V_STATUS
+endvariables
+
+;//Guards
+
+;//Init
+    VERB = "POST"
+
+    URI = "<AWS_ENDPOINT_TEST>"
+
+    HOST = "<AWS_HOST_TEST>"
+    PAYLOAD = "test"
+    CONTENT_LENGTH = "%%$length(PAYLOAD)%%%"
+    CONTENT_TYPE = "text/plain"
+    AMZ_DATE = "20171221T235316Z"
+    DATE_YYYYMMDD = AMZ_DATE[1:8]
+    X_AMZ_DATE = AMZ_DATE
+
+    SECRET_KEY = "<AWS_SECRET_KEY_TEST>"
+    REGION = "ap-southeast-2"
+    SERVICE = "execute-api"
+    ACCESS_KEY = "<AWS_ACCESS_KEY_TEST>"
+                   
+    putitem V_HEADERS, -1, $concat("Content-Length: ", CONTENT_LENGTH)
+    putitem V_HEADERS, -1, $concat("Content-Type: ", CONTENT_TYPE)
+    putitem V_HEADERS, -1, $concat("X-Amz-Date: ", X_AMZ_DATE)
+    putitem V_HEADERS, -1, $concat("Host: ", HOST)
+
+    V_PAYLOAD = PAYLOAD
+
+;//Process
+
+    ;//sign
+    V_HASH_OF_CANONICAL_REQ = EN100_HASH_OF_CANONICAL_REQ(VERB, URI, HOST, V_HEADERS, AMZ_DATE, DATE_YYYYMMDD, SECRET_KEY, REGION, SERVICE, V_PAYLOAD, V_MESSAGE, V_STATUS)
+    V_STRING_TO_SIGN = EN500_CREATE_STRING_TO_SIGN(AMZ_DATE, DATE_YYYYMMDD, REGION, SERVICE, V_HASH_OF_CANONICAL_REQ, V_MESSAGE, V_STATUS)
+    SIGNATURE = EN600_CALCULATE_SIGNATURE_AWSV4( V_STRING_TO_SIGN, SECRET_KEY, DATE_YYYYMMDD, REGION, SERVICE)
+    V_RESULT = SIGNATURE
+
+    ;//AssertEquals
+    V_EXPECTED = "af804a98349a1c6031a5b0bd374ad2c025cb035568368d93317886a74c904ff0"
+    if (V_EXPECTED = V_RESULT)
+        RESULT2 = "PASS"
+        $fieldproperties(RESULT2) = "backcolor=green·;forecolor=white"
+        fieldsyntax RESULT2, "YDI"
+    else
+        RESULT2 = "FAIL"
+        $fieldproperties(RESULT2) = "backcolor=red·;forecolor=white"
+        fieldsyntax RESULT2, "YDI"
+    endif
+
+    return 0
+end ;UT02
+
+
+;//--------------------------------------------------------------------------
+;// UT03 : Test creation of AWS sig v4 signature and call to API gsteway
+;//--------------------------------------------------------------------------
+entry UT03 
+variables
+    string V_HEADERS
+    string V_EXPECTED
+    string V_ACTUAL
+    string V_HASH_OF_CANONICAL_REQ
+    string V_STRING_TO_SIGN
+    string V_AMZ_DATE
+    string V_HOST
+    string V_CONTENT_LENGTH
+    string V_CONTENT_TYPE
+    string V_RESULT
+    string V_PAYLOAD
+    string V_ALGORITHM
+    string V_RESPONSE
+    string V_CREDENTIAL  
+    string V_SIGNED_HDR
+    string V_AUTHORIZATION
+    string V_MESSAGE
+    numeric V_STATUS
+endvariables
+
+;//Guards
+
+;//Init
+
+    VERB = "POST"
+
+    URI = "<AWS_ENDPOINT_TEST>"
+
+    HOST = "<AWS_HOST_TEST>"
+    PAYLOAD = "test"
+    CONTENT_LENGTH = "%%$length(PAYLOAD)%%%"
+    CONTENT_TYPE = "text/plain"
+    AMZ_DATE = EN900_AMZ_DATE()
+    DATE_YYYYMMDD = AMZ_DATE[1:8]
+    X_AMZ_DATE = AMZ_DATE
+
+    SECRET_KEY = "<AWS_SECRET_KEY_TEST>"
+    REGION = "ap-southeast-2"
+    SERVICE = "execute-api"
+    ACCESS_KEY = "<AWS_ACCESS_KEY_TEST>"
+
+    putitem V_HEADERS, -1, $concat("x-amz-date: ", X_AMZ_DATE)
+    putitem V_HEADERS, -1, $concat("host: ", HOST)
+
+    V_PAYLOAD = PAYLOAD
+
+;//Process
+
+    ;//sign
+    V_HASH_OF_CANONICAL_REQ = EN100_HASH_OF_CANONICAL_REQ(VERB, URI, HOST, V_HEADERS, AMZ_DATE, DATE_YYYYMMDD, SECRET_KEY, REGION, SERVICE, V_PAYLOAD, V_MESSAGE, V_STATUS)
+    V_STRING_TO_SIGN = EN500_CREATE_STRING_TO_SIGN(AMZ_DATE, DATE_YYYYMMDD, REGION, SERVICE, V_HASH_OF_CANONICAL_REQ, V_MESSAGE, V_STATUS)
+    SIGNATURE = EN600_CALCULATE_SIGNATURE_AWSV4( V_STRING_TO_SIGN, SECRET_KEY, DATE_YYYYMMDD, REGION, SERVICE)
+
+    ;// Authorization header
+    V_ALGORITHM = "AWS4-HMAC-SHA256"
+    V_CREDENTIAL = $concat("Credential=", ACCESS_KEY,"/", DATE_YYYYMMDD, "/")
+    V_CREDENTIAL = $concat(V_CREDENTIAL, REGION, "/", SERVICE, "/aws4_request, ")
+    V_SIGNED_HDR = "SignedHeaders=host;x-amz-date"
+    V_AUTHORIZATION  = $concat(V_ALGORITHM, " ", V_CREDENTIAL, V_SIGNED_HDR)
+    V_AUTHORIZATION  = $concat(V_AUTHORIZATION, ", ", "Signature=", SIGNATURE)
+
+    V_HEADERS = ""
+    putitem/id V_HEADERS, "X-Amz-Date", X_AMZ_DATE
+    putitem/id V_HEADERS, "Authorization", V_AUTHORIZATION
+
+    V_RESPONSE = EN700_API_GATEWAY_SEND( VERB, URI, HOST, V_HEADERS, V_PAYLOAD, V_STATUS, V_MESSAGE)    
+
+    PAYLOAD_RESPONSE = V_PAYLOAD
+
+    ;//AssertEquals
+    V_EXPECTED = "HTTP/1.1 200 OK"
+    if (V_EXPECTED = V_RESPONSE)
+        RESULT3 = "PASS"
+        $fieldproperties(RESULT3) = "backcolor=green·;forecolor=white"
+        fieldsyntax RESULT3, "YDI"
+    else
+        RESULT3 = "FAIL"
+        $fieldproperties(RESULT3) = "backcolor=red·;forecolor=white"
+        fieldsyntax RESULT3, "YDI"
+    endif
+
+    return 0
+end ;UT03
 
 ;//---------------------------------------------------------------
 ;// Create a Canonical Request for Signature Version 4
 ;// http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
 ;//---------------------------------------------------------------
-entry EN100_CREATE_CANONICAL_SIG_V4
+entry EN100_HASH_OF_CANONICAL_REQ
 returns string
     params
         string P_VERB : IN
-        string P_URL : IN
+        string P_URI : IN
         string P_HOST : IN
-        string P_HEADERS : IN ; uniface list
+        string P_HEADERS : IN 
+        string P_AMZ_DATE :IN
+        string P_DATE_YYYYMMDD :IN
+        string P_SECRET_KEY :IN
+        string P_REGION :IN
+        string P_SERVICE :IN
         string P_PAYLOAD : IN
         string P_MESSAGE : OUT
         numeric P_STATUS : OUT
     endparams
     variables
         string V_HTTP_REQUEST_METHOD
+        string V_HEADERS
         string V_CANONICAL_URI
         string V_CANONICAL_QUERY_STRING
         string V_CANONICAL_HEADERS
@@ -85,64 +269,61 @@ returns string
         P_MESSAGE = "No HTTP verb"
         return <NULL>
     endif 
-    if (P_URL = "")
+    if (P_URI = "")
         P_STATUS = -1
         P_MESSAGE = "No API URL"
         return <NULL>
     endif 
-
 ;Init
-
+    V_HEADERS = P_HEADERS
 ;Process
 
     ;HTTP method
     V_HTTP_REQUEST_METHOD = P_VERB
 
     ;CanonicalURI : everything in URI (encoded) from host to the ? see RFC3986
-    V_URI = P_URL
+    V_URI = P_URI
     V_URI = $replace(V_URI, 1, "://", "·;", 1)
     V_URI = $replace(V_URI, 1, "/", "·;", 1)
     V_URI = $replace(V_URI, 1, "?", "·;", 1)
  
     V_URI_PARAMS = $itemnr(3, V_URI)
     if (V_URI_PARAMS = <NULL>)
-        V_URI_PARAMS = "/"
+        V_CANONICAL_URI = "/"
+    else
+        ;todo - uri encode each path segment
+        V_CANONICAL_URI = $concat("/", V_URI_PARAMS)
     endif
-    V_CANONICAL_URI = V_URI_PARAMS
 
     ;Canonical query string
     if ($itemcount(V_URI) > 3) 
         V_QUERY_STRING = $itemnr(4,V_URI)
         V_CANONICAL_QUERY_STRING = EN200_CANONICAL_QUERY_STRING( V_QUERY_STRING, V_MESSAGE, V_STATUS )
-        V_CANONICAL_QUERY_STRING = V_CANONICAL_QUERY_STRING
     else
-        V_CANONICAL_QUERY_STRING = ""
+        V_CANONICAL_QUERY_STRING = "" 
     endif
 
     ;Canonical Headers : List of all HTTP headers. host header at a minimum. others opt
-    V_CANONICAL_HEADERS = EN300_CANONICAL_HEADERS(P_HEADERS, V_MESSAGE, V_STATUS)
+    V_CANONICAL_HEADERS = EN300_CANONICAL_HEADERS(V_HEADERS, V_MESSAGE, V_STATUS)
 
     ;SignedHeaders 
-    V_SIGNED_HEADERS = EN400_SIGNED_HEADERS(P_HEADERS, V_MESSAGE, V_STATUS)
+    V_SIGNED_HEADERS = EN400_SIGNED_HEADERS(V_HEADERS, V_MESSAGE, V_STATUS)
 
     ;create the hex code : use same alogrthim for AWS i.e. AWS4-HMAC-SHA256
     V_REQUEST_PAYLOAD = P_PAYLOAD
     if (V_REQUEST_PAYLOAD = "")
         V_HEX_CODE = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     else
-        V_HASH = $encode("SHA256", V_REQUEST_PAYLOAD)
-        V_HEX_CODE = $encode("HEX", V_HASH)
-        V_HEX_CODE = $lowercase(V_HEX_CODE)
+        V_HEX_CODE = $lowercase($encode("HEX", $encode("SHA256", V_REQUEST_PAYLOAD)))
     endif
 
     ;combine
     V_CANONICAL_REQUEST = $concat(V_HTTP_REQUEST_METHOD, <LF>, V_CANONICAL_URI, <LF>, V_CANONICAL_QUERY_STRING)
     V_CANONICAL_REQUEST = $concat(V_CANONICAL_REQUEST, <LF>, V_CANONICAL_HEADERS, <LF>, V_SIGNED_HEADERS)
     V_CANONICAL_REQUEST = $concat(V_CANONICAL_REQUEST, V_HEX_CODE)
-    V_OUTPUT = $lowercase( $encode("HEX", $encode("SHA256", V_CANONICAL_REQUEST)) )
 
-    ;Return
-    return V_OUTPUT
+    ;Return hash of canonical request
+    return $lowercase( $encode("HEX", $encode("SHA256", V_CANONICAL_REQUEST)) )
 
 end
 
@@ -183,7 +364,7 @@ returns string
         ;c.build canonical query string
          V_CANONICAL_QUERY_STRING = $concat(V_CANONICAL_QUERY_STRING,V_ITEM)
 
-        ;d.append '&' except ofr last
+        ;d.append '&' except for last
         if (V_IDX != $itemcount(V_LIST))
             V_CANONICAL_QUERY_STRING = $concat(V_CANONICAL_QUERY_STRING, "&")
         endif     
@@ -212,7 +393,7 @@ returns string
     endvariables
 
     if (P_HEADERS = <NULL>) return <NULL>
-;"Content-Type: application/x-www-form-urlencoded; charset=utf-8"
+
     forlist V_ITEM, V_IDX in P_HEADERS
         if ($scan(V_ITEM,":") > 0)
             V_POS = $split(V_ITEM, 1, ":", V_HDR_NAME, V_HDR_VALUE)
@@ -284,40 +465,50 @@ returns string
         string P_AMZ_DATE : IN
         string P_DATE_YYYYMMDD : IN
         string P_REGION : IN
+        string P_SERVICE : IN
         string P_HASH_OF_CANONICAL_REQ : IN
+        string P_MESSAGE : OUT
+        numeric P_STATUS : OUT
     endparams
     variables
         string V_ALGORITHM
-        string V_AMZ_DATE
         string V_REGION
         string V_AWS_SERVICE
         string V_TERMINATOR
         string V_CREDENTIAL_SCOPE
         string V_STRING_TO_SIGN
+        string V_AMZ_DATE
         string V_HASH_OF_CANONICAL_REQ
     endvariables
 
 ;// Guards 
-
-;// init
-    V_AWS_SERVICE = "iam"
-    V_TERMINATOR = "aws4_request"
-
-    if (P_REGION = <NULL>)
-        V_REGION = "ap-southeast-2"
-    else
-        V_REGION = P_REGION
+    if (P_AMZ_DATE = <NULL>)
+        P_MESSAGE = "No AMZ_DATE"
+        P_STATUS = -1
+        return -1
     endif
+    if (P_REGION = <NULL>)
+        P_MESSAGE = "No Region"
+        P_STATUS = -1
+        return -1
+    endif
+    if (P_SERVICE = <NULL>)
+        P_MESSAGE = "No Service"
+        P_STATUS = -1
+        return -1
+    endif
+
+;//Init
+    V_AWS_SERVICE = P_SERVICE
+    V_TERMINATOR = "aws4_request"
+    V_REGION = P_REGION
     V_HASH_OF_CANONICAL_REQ = P_HASH_OF_CANONICAL_REQ
-
-;// Process
-
+    ;// Request date value : ISO8601
+    V_AMZ_DATE = P_AMZ_DATE 
     ;// SHA256
     V_ALGORITHM = "AWS4-HMAC-SHA256"
 
-    ;// Request date value : ISO8601
-    ;V_AMZ_DATE = EN300_AMZ_DATE() 
-
+;//Process
     ;// Append credential scope value
     ;// - lowercase(date/region/service/"aws4_request")
     V_CREDENTIAL_SCOPE = $concat(P_DATE_YYYYMMDD,"/",P_REGION,"/",V_AWS_SERVICE)
@@ -328,6 +519,7 @@ returns string
     V_STRING_TO_SIGN = $concat(V_ALGORITHM, <LF>, P_AMZ_DATE, <LF>, V_CREDENTIAL_SCOPE)
     V_STRING_TO_SIGN = $concat(V_STRING_TO_SIGN, <LF>, P_HASH_OF_CANONICAL_REQ)
 
+;//Return
     return V_STRING_TO_SIGN
 
 end
@@ -357,37 +549,76 @@ returns string
         raw V_KSERVICE
         raw V_KSIGNING
         string V_SIGNATURE
-        string v_test
     endvariables
 
-;// Guards 
+;//Guards 
 
-;// init
+;//Init
 
-;// Process
-debug
-;change to key then data 
+;//Process
     ;// Derive signing key : Run a series of Hashes
     V_KSECRET = P_SECRET_ACCESS_KEY
     V_KDATE = $encode("HMAC_SHA256", P_DATE_YYYYMMDD, $concat("AWS4", V_KSECRET))
     V_KREGION = $encode("HMAC_SHA256", P_REGION, V_KDATE)
     V_KSERVICE = $encode("HMAC_SHA256", P_SERVICE, V_KREGION)
     V_KSIGNING = $encode("HMAC_SHA256", "aws4_request", V_KSERVICE)
-    V_TEST = $lowercase($encode("HEX", V_KSIGNING))
-
 
     ;// Calculate signature
     V_SIGNATURE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", P_STRING_TO_SIGN, V_KSIGNING )))
 
-
-;;;    V_KDATE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", $concat("AWS4", V_KSECRET), P_DATE_YYYYMMDD) ) )
-;;;    V_KREGION = $lowercase( $encode( "HEX", $encode("HMAC_SHA256", V_KDATE, P_REGION) ) )
-;;;    V_KSERVICE = $lowercase( $encode( "HEX", $encode("HMAC_SHA256", V_KREGION, P_SERVICE) ) )
-;;;    V_KSIGNING = $lowercase( $encode("HEX", $encode("HMAC_SHA256", V_KSERVICE, "aws4_request")) )
-;;;
-;;;    ;// Calculate signature
-;;;    V_SIGNATURE = $lowercase( $encode("HEX", $encode("HMAC_SHA256", V_KSIGNING, P_STRING_TO_SIGN)))
+;Return
     return V_SIGNATURE
+end
+
+;-------------------------------------------------------
+; Send to AWS API Gateway
+;-------------------------------------------------------
+entry EN700_API_GATEWAY_SEND
+returns string ;response
+    params
+        string P_VERB : IN
+        string P_URI : IN
+        string P_HOST : IN
+        string P_HEADERS : IN
+        string P_PAYLOAD : INOUT
+        numeric P_STATUS : OUT
+        string P_MESSAGE : OUT
+    endparams
+    variables
+        string V_URI
+        string V_VERB
+        string V_AUTHORIZATION
+        string V_HEADERS
+        string V_CONTENT
+        string V_RESPONSE
+        string V_TOKEN
+        string V_SEEK_WEB_SERVICE_PATH
+    endvariables
+
+    P_STATUS = 0
+    P_MESSAGE = ""
+
+    V_URI = P_URI
+    V_VERB = P_VERB
+    V_CONTENT = P_PAYLOAD
+    V_HEADERS = P_HEADERS
+    V_CONTENT = P_PAYLOAD
+    V_RESPONSE = ""
+
+    ;// Remove SET_FLAGS for production
+    ;// ca-bundle.crt should be present in the ..\common\usys directory.
+    activate "UHTTP".SET_FLAGS(3)
+
+    activate "UHTTP".SEND(V_URI, P_VERB, "", "", V_HEADERS, V_CONTENT, V_RESPONSE)
+    if ($status != 200) 
+        P_STATUS = -1
+        P_MESSAGE = "Error calling API GATEWAY%%^HTTP Response header:-%%^%%V_RESPONSE%%^%%^HTTP Response Content:-%%^%%V_CONTENT%%^"
+        putmess "Error calling API GATEWAY%%^HTTP Response header:-%%^%%V_HEADERS%%^%%^HTTP Response Content:-%%^%%V_CONTENT%%^"
+        return("ERROR")
+    endif
+
+    P_PAYLOAD = V_CONTENT
+    return V_RESPONSE
 end
 
 
@@ -400,9 +631,13 @@ returns string
         datetime V_NOW
         string V_AWS_DATE
         numeric Vx
+        string V_INT_TIME
     endvariables
 
+    V_INT_TIME = $nlsinternaltime
+    $nlsinternaltime = "UTC"
     V_NOW = $datim
+    $nlsinternaltime = V_INT_TIME
 
     ;year
     V_AWS_DATE = V_NOW[Y]
