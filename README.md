@@ -14,6 +14,6 @@ This unit test creates a signature and calls the AWS API gateway endpoint, which
 
 There are some todo's such as URI encoding.
 
-Update the color_scheme setting in your User Preferences to the path of the new theme.
-About
+
+# About
 Created by [Kevin McKeever]. Copyright 2017. MIT Licensed.
