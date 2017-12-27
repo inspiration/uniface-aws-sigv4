@@ -10,7 +10,7 @@ This unit test uses <my> secret keys in #define trigger to validate a correct si
 ## UT03 - Unit Test 3
 This unit test creates a signature and calls the AWS API gateway endpoint, which will return OK if successful
 
-# The code contains a Uniface form component for unit testing, but the LPMX code is portable.
+### The code contains a Uniface form component for unit testing, but the LPMX code is portable.
 
 There are some todo's such as URI encoding.
 
